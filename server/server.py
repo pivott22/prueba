@@ -75,8 +75,10 @@ def api_get(path):
         raise RuntimeError("No se pudo leer la API de Mercado Libre.") from None
 
 
-def diagnose_connection():
+def diagnose_connection(item_id=""):
     """Read-only checks, returning statuses without account data or credentials."""
+    if item_id and not re.fullmatch(r"MLC[0-9]{1,20}", item_id):
+        raise ValueError("El identificador debe tener formato MLC seguido de números.")
     result = {"account_http": None, "own_listings_http": None, "seller_listings_http": None}
     try:
         account = api_get("/users/me")
@@ -108,6 +110,20 @@ def diagnose_connection():
         result["finding"] = "seller_search_access_confirmed"
     else:
         result["finding"] = "inconclusive"
+    if item_id:
+        result["item_id"] = item_id
+        try:
+            item = api_get(f"/items/{item_id}?attributes=id,title,seller_id,price,currency_id,permalink,status")
+            result["item_http"] = 200
+            result["item_seller_matches"] = str(item.get("seller_id")) == SELLER
+            result["product"] = normalize_item(item)
+            result["item_finding"] = "direct_item_access_confirmed"
+        except MercadoLibreError as error:
+            result["item_http"] = error.status
+            result["item_finding"] = "direct_item_access_rejected" if error.status == 403 else "direct_item_query_failed"
+        except RuntimeError:
+            result["item_http"] = None
+            result["item_finding"] = "authorization_or_network_error"
     return result
 
 

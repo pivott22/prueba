@@ -17,7 +17,7 @@ PAGE = '''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewp
 <body><h1>Conectar PokéOfertas</h1><p>{{ message }}</p><p>Redirect URI para registrar en Mercado Libre:</p><pre>{{ uri }}</pre>
 <form method="post" action="/oauth/start"><label>Clave privada del servidor <input name="key" type="password" required autocomplete="off"></label><button>Autorizar mi cuenta</button></form>
 <h2>Diagnosticar conexión</h2><p>Comprueba el acceso a tu cuenta, tus publicaciones y al vendedor 550072427. No muestra claves ni datos de tu cuenta.</p>
-<form method="post" action="/diagnostic"><label>Clave privada del servidor <input name="key" type="password" required autocomplete="off"></label><button>Diagnosticar conexión</button></form>
+<form method="post" action="/diagnostic"><label>Clave privada del servidor <input name="key" type="password" required autocomplete="off"></label><p><label>Publicación individual de prueba <input name="item_id" value="MLC4261910624" maxlength="23"></label></p><button>Diagnosticar conexión</button></form>
 <p>Los permisos de tu cuenta no garantizan acceso a publicaciones de otros vendedores. Esta conexión permitirá comprobarlo.</p></body></html>'''
 
 
@@ -112,6 +112,8 @@ def diagnostic():
     if not key_matches(request.form.get("key", "")):
         return jsonify(error="Clave privada incorrecta."), 401
     try:
-        return jsonify(server.diagnose_connection())
+        return jsonify(server.diagnose_connection(request.form.get("item_id", "").strip()))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
     except Exception:
         return jsonify(error="No se pudo completar el diagnóstico."), 502
