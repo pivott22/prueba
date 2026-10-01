@@ -18,6 +18,21 @@ LOCK = threading.Lock()
 CACHE = {"at": 0, "data": None}
 
 
+class MercadoLibreError(RuntimeError):
+    def __init__(self, status, resource):
+        self.status = status
+        self.resource = resource
+        if status == 401:
+            message = "Mercado Libre HTTP 401: la autorización no fue aceptada. Vuelve a conectar tu cuenta."
+        elif status == 403:
+            message = "Mercado Libre HTTP 403: acceso rechazado por permisos o políticas. Abre Diagnosticar conexión en la página del servidor."
+        elif status == 429:
+            message = "Mercado Libre limitó las consultas. Intentar más tarde."
+        else:
+            message = f"Mercado Libre HTTP {status}."
+        super().__init__(message)
+
+
 def pokemon_title(title):
     plain = "".join(c for c in unicodedata.normalize("NFKD", str(title)) if not unicodedata.combining(c))
     return bool(re.search(r"\bpokemon\b", plain, re.I))
@@ -55,13 +70,45 @@ def api_get(path):
                 raise RuntimeError("Respuesta de Mercado Libre demasiado grande.")
             return json.loads(raw)
     except urllib.error.HTTPError as error:
-        if error.code in (401, 403):
-            raise RuntimeError(f"Mercado Libre HTTP {error.code}: token vencido o acceso al vendedor no autorizado.") from None
-        if error.code == 429:
-            raise RuntimeError("Mercado Libre limitó las consultas. Intentar más tarde.") from None
-        raise RuntimeError(f"Mercado Libre HTTP {error.code}.") from None
+        raise MercadoLibreError(error.code, path.split("?")[0]) from None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         raise RuntimeError("No se pudo leer la API de Mercado Libre.") from None
+
+
+def diagnose_connection():
+    """Read-only checks, returning statuses without account data or credentials."""
+    result = {"account_http": None, "own_listings_http": None, "seller_listings_http": None}
+    try:
+        account = api_get("/users/me")
+        result["account_http"] = 200
+    except MercadoLibreError as error:
+        result["account_http"] = error.status
+        result["finding"] = "account_access_rejected"
+        return result
+    except RuntimeError:
+        result["finding"] = "authorization_or_network_error"
+        return result
+    ident = str(account.get("id", ""))
+    if not ident.isdigit():
+        result["finding"] = "unexpected_account_response"
+        return result
+    for label, user in (("own_listings_http", ident), ("seller_listings_http", SELLER)):
+        try:
+            api_get(f"/users/{user}/items/search?status=active&limit=1")
+            result[label] = 200
+        except MercadoLibreError as error:
+            result[label] = error.status
+        except RuntimeError:
+            result[label] = "network_or_authorization_error"
+    if result["own_listings_http"] == 200 and result["seller_listings_http"] == 403:
+        result["finding"] = "target_seller_access_rejected"
+    elif result["own_listings_http"] == 403:
+        result["finding"] = "listing_resource_access_rejected"
+    elif result["seller_listings_http"] == 200:
+        result["finding"] = "seller_search_access_confirmed"
+    else:
+        result["finding"] = "inconclusive"
+    return result
 
 
 def collect():

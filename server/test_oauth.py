@@ -40,6 +40,7 @@ class AuthorizationTests(unittest.TestCase):
     def test_private_routes_require_key(self):
         self.assertEqual(self.client.get("/products").status_code, 401)
         self.assertEqual(self.client.post("/oauth/start", data={"key": "wrong"}).status_code, 401)
+        self.assertEqual(self.client.post("/diagnostic", data={"key": "wrong"}).status_code, 401)
 
     def test_callback_rejects_other_browser_and_replay(self):
         state = self.start()["state"][0]
