@@ -1,6 +1,10 @@
 # PokéOfertas Chile
 
-Aplicación Android privada para vigilar Pokémon TCG del vendedor 550072427. Este proyecto contiene código fuente; todavía no hay un APK compilado ni un servicio desplegado.
+Aplicación Android de uso personal para vigilar Pokémon TCG del vendedor 550072427. El APK de prueba fue compilado en GitHub Actions y tiene aproximadamente 2,4 MB. No hay un servicio de vigilancia desplegado.
+
+## Instalar sin Android Studio
+
+Abrir https://github.com/pivott22/prueba/actions/runs/36916587577 con sesión de GitHub, bajar el archivo `pokeofertas-debug-apk` de Artifacts y descomprimirlo. Transferir `app-debug.apk` al teléfono, abrirlo y autorizar la instalación desde esa fuente si Android lo solicita. Compatible desde Android 8.0. Esta es una versión de prueba; no está publicada en Google Play y todavía no se probó en un teléfono.
 
 ## Estado
 
@@ -16,7 +20,7 @@ Aplicación Android privada para vigilar Pokémon TCG del vendedor 550072427. Es
 
 Abrir esta carpeta en Android Studio, instalar JDK 17 y Android SDK 35, sincronizar Gradle y ejecutar la app. Se necesita Gradle 8.11.1 si se usa la terminal; no se incluye un wrapper binario. Ejecutar `gradle assembleDebug` desde esta carpeta. El APK queda en `app/build/outputs/apk/debug/app-debug.apk`.
 
-La carpeta `.github/workflows` incluye un flujo de compilación para GitHub. Se ejecuta al subir cambios a main o manualmente desde Actions → Build Android APK → Run workflow. Cuando termina correctamente, el APK se descarga en la sección Artifacts del resultado. No se requiere Android Studio local. El repositorio indicado es pivott22/prueba; la subida y ejecución siguen pendientes por falta de permisos de escritura de las conexiones disponibles.
+La carpeta `.github/workflows` incluye un flujo de compilación para GitHub. Se ejecuta al subir cambios a main o manualmente desde Actions → Build Android APK → Run workflow. Cuando termina correctamente, el APK se descarga en la sección Artifacts del resultado. No se requiere Android Studio local. El código está en pivott22/prueba y la ejecución 36916587577 terminó correctamente.
 
 ## Primer uso
 
@@ -38,4 +42,4 @@ Datos manuales almacenados solo en el teléfono. El token OAuth de Mercado Libre
 
 ## Verificación
 
-Las cuatro pruebas del servidor se ejecutaron y pasaron (vendedor, moneda, precio, enlaces y condición activa). La API oficial devolvió HTTP 403 en la consulta pública del vendedor: falta comprobar acceso autorizado con un token válido. La compilación y pruebas en Android están pendientes: no se encontró JDK ni Android SDK en el entorno. No hay APK ni vigilancia operativa todavía.
+Las cuatro pruebas del servidor pasaron, además de assembleDebug y lintDebug en GitHub Actions. El APK fue descargado correctamente. Las pruebas de ejecución en un teléfono siguen pendientes. La API oficial devolvió HTTP 403 en la consulta pública del vendedor: falta comprobar acceso autorizado con un token válido y desplegar el servidor. Por ahora se puede usar el registro manual de productos, historial y mensajes para copiar; todavía no hay vigilancia automática operativa.
