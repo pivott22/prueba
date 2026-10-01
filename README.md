@@ -32,6 +32,8 @@ La carpeta `.github/workflows` incluye un flujo de compilación para GitHub. Se 
 
 ## Vigilancia automática
 
+El servidor ahora incluye conexión OAuth con PKCE y renovación de acceso. Para crear la dirección HTTPS y completar el formulario de Mercado Libre, seguir server/RENDER.md. El archivo render.yaml prepara un servicio gratuito, pero su despliegue y la autorización real están pendientes. Las nueve pruebas locales del servidor pasaron.
+
 Leer `server/README.md`. El teléfono consulta el servidor aproximadamente cada 15 minutos con WorkManager; Android puede retrasar ese trabajo por batería o conectividad. Las alertas dependen de permiso de notificaciones y de que el servidor siga funcionando. No son instantáneas. El servidor vuelve a consultar precios cuando un cliente sincroniza; no es un sistema de notificaciones push.
 
 Los precios y el stock pueden cambiar. El costo de envío depende del comprador y NO lo calcula la API del servidor. La app marca las ofertas automáticas como envío sin confirmar y nunca las compara como si fueran precio final.

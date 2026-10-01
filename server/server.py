@@ -1,4 +1,4 @@
-"""Private seller price adapter. Python 3.11+, standard library only."""
+"""Private seller price adapter. Use requirements.txt for OAuth support."""
 import hmac
 import json
 import os
@@ -45,9 +45,8 @@ def normalize_item(item):
 
 
 def api_get(path):
-    token = os.environ.get("MELI_ACCESS_TOKEN", "")
-    if not token:
-        raise RuntimeError("Falta MELI_ACCESS_TOKEN en el servidor.")
+    from oauth import access_token
+    token = access_token()
     request = urllib.request.Request(API + path, headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
