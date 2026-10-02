@@ -57,7 +57,7 @@ public final class MainActivity extends Activity {
         });
         text("PokéOfertas", 30);
         text("Lector del teléfono → tu bot privado de Telegram", 17);
-        text("Vendedor 550072427 · Pokémon · Nuevos productos y bajadas de precio", 15);
+        text("Vendedor 550072427 · Pokémon · Nuevos productos, bajadas y subidas de precio", 15);
         status = text("", 16);
         text("1. Comprueba la tienda", 21);
         control("Abrir tienda", () -> reader.openStore());
@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
         control("Conectar mi bot", this::connectionDialog);
         control("Enviar prueba con foto de un producto real", this::photoTest);
         text("3. Vigila las novedades", 21);
-        text("La primera lectura completa guarda el listado sin avisar. Después avisa de productos nuevos y de cualquier bajada respecto del último precio válido leído. Los avisos de bajada muestran el precio anterior y el nuevo, con foto y enlace cuando están disponibles.", 15);
+        text("La primera lectura completa guarda el listado sin avisar. Después avisa de productos nuevos y de cualquier bajada o subida respecto del último precio válido leído. Los avisos de precio muestran el anterior, el nuevo y la diferencia, con foto y enlace cuando están disponibles.", 15);
         control("Activar vigilancia cada 2 min", this::activate);
         Button pause = new Button(this); pause.setText("Pausar vigilancia"); layout.addView(pause);
         pause.setOnClickListener(v -> { stopService(new Intent(this, WatchService.class)); store.status("Vigilancia pausada por ti."); update(); });

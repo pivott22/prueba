@@ -33,8 +33,9 @@ final class CatalogState {
             if (previousPrice == 0) previousPrice = price(previous, "price"); // Existing 0.1.0 history.
             if (baseline && previous == null) {
                 pending.put(new JSONObject(product.toString()).put("type", "new_product"));
-            } else if (baseline && previousPrice > 0 && currentPrice > 0 && currentPrice < previousPrice) {
-                pending.put(new JSONObject(product.toString()).put("type", "price_drop").put("previousPrice", previousPrice));
+            } else if (baseline && previousPrice > 0 && currentPrice > 0 && currentPrice != previousPrice) {
+                pending.put(new JSONObject(product.toString()).put("type", currentPrice < previousPrice ? "price_drop" : "price_rise")
+                    .put("previousPrice", previousPrice));
             }
             JSONObject recorded = new JSONObject(product.toString());
             if (currentPrice > 0 || previousPrice > 0) recorded.put("lastKnownPrice", currentPrice > 0 ? currentPrice : previousPrice);
