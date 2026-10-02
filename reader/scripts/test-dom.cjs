@@ -48,10 +48,12 @@ function card({ id = 'MLC123', price = '18.990', currency = '$', seller = '55007
     assert.equal(data.accessKind, 'signin');
     data = await snapshot(root(card()) + '<nav>Iniciar sesión</nav>');
     assert.equal(data.completeFirstPage, true); assert.equal(data.accessKind, '');
+    data = await snapshot(root(card()) + '<nav>Para continuar, ingresa a tu cuenta</nav>');
+    assert.equal(data.completeFirstPage, true); assert.equal(data.accessKind, '');
     data = await snapshot('<h1>Iniciar sesión</h1><p>Verifica que eres humano</p>', 'https://www.mercadolibre.com/jms/mlc/lgz/login');
     assert.equal(data.status, 'blocked'); assert.equal(data.accessKind, 'verification');
     data = await snapshot('<h1>Iniciar sesión</h1>', 'https://evil.example/login');
     assert.equal(data.accessKind, ''); assert.equal(data.products.length, 0);
-    console.log('16 escenarios de DOM offline correctos; ninguna consulta real a Mercado Libre o Telegram.');
+    console.log('17 escenarios de DOM offline correctos; ninguna consulta real a Mercado Libre o Telegram.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

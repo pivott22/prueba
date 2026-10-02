@@ -77,8 +77,7 @@ function classifyPage({ url, http, text, recognized = false }) {
   if ([401, 403, 429].includes(http)) return 'blocked';
   if (http >= 400) return 'http_error';
   if (accessKind({ url, text, recognized })) return 'blocked';
-  if (/\/gz\/|\/account-verification|\/login|\/registration/i.test(new URL(url).pathname)) return 'blocked';
-  if (/hubo un error accediendo|para continuar,?\s+ingresa|verifica que eres humano|completa el captcha|access denied/i.test(text)) return 'blocked';
+  if (/hubo un error accediendo|access denied/i.test(text)) return 'blocked';
   return 'ok';
 }
 
