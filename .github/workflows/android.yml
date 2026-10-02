@@ -29,11 +29,30 @@ jobs:
         run: pip install -r server/requirements.txt
       - name: Validate price adapter and OAuth
         run: python -m unittest discover -s server -p 'test_*.py'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate Android page reader
+        run: node reader/scripts/build-reader.mjs
+      - name: Restore private reader signing identity
+        env:
+          READER_SIGNING_CONFIG: ${{ secrets.READER_SIGNING_CONFIG }}
+        run: python reader/scripts/restore-signing.py
+      - name: Test reader state and listing boundaries
+        run: gradle :reader:testDebugUnitTest
       - name: Compile and lint
         run: gradle assembleDebug lintDebug
+      - name: Verify reader APK signature
+        run: '"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs reader/build/outputs/apk/debug/reader-debug.apk'
       - uses: actions/upload-artifact@v4
         with:
           name: pokeofertas-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pokeofertas-reader-apk
+          path: reader/build/outputs/apk/debug/reader-debug.apk
           if-no-files-found: error
           retention-days: 7

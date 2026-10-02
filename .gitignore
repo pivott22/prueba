@@ -7,3 +7,6 @@ __pycache__/
 .env
 *.enc
 *.tmp
+*.p12
+*.keystore
+*.jks
