@@ -152,4 +152,24 @@ public class ReaderStateTest {
         assertTrue(TelegramClient.caption(p, false, true).contains("Foto no disponible"));
         assertFalse(TelegramClient.caption(p, true, false).contains("Subió el precio"));
     }
+    @Test public void manualChileLoginCanNavigateWithoutWideningSellerReads() {
+        String login = "https://www.mercadolibre.com/jms/mlc/lgz/login?platform_id=ML";
+        assertTrue(ListingPolicy.allowedBrowserPage(login));
+        assertTrue(ListingPolicy.allowedBrowserPage("https://www.mercadolibre.com/gz/account-verification?go=private"));
+        assertFalse(ListingPolicy.listing(login));
+        assertFalse(ListingPolicy.firstPage(login));
+        assertFalse(ListingPolicy.product(login));
+        assertFalse(ListingPolicy.allowedBrowserPage(login.replace("mercadolibre.com/", "mercadolibre.com.evil.example/")));
+        assertFalse(ListingPolicy.allowedBrowserPage(login.replace("https://", "https://user:secret@")));
+        assertFalse(ListingPolicy.allowedBrowserPage(login.replace(".com/", ".com:444/")));
+        assertFalse(ListingPolicy.allowedBrowserPage(login.replace("https:", "http:")));
+        assertFalse(ListingPolicy.allowedBrowserPage(login.replace("/mlc/", "/mla/")));
+        assertFalse(ListingPolicy.allowedBrowserPage("https://www.mercadolibre.com/unrelated"));
+    }
+    @Test public void diagnosticsHideAuthenticationPathsAndQueryValues() {
+        assertEquals("https://www.mercadolibre.com/jms/mlc/", ListingPolicy.publicLocation("https://www.mercadolibre.com/jms/mlc/lgz/login/OPAQUE_AUTH_STATE/user?code=SECRET#token"));
+        assertEquals("https://www.mercadolibre.cl/gz/", ListingPolicy.publicLocation("https://www.mercadolibre.cl/gz/check/OPAQUE_AUTH_STATE?go=private"));
+        assertEquals("https://unknown.example/", ListingPolicy.publicLocation("https://unknown.example/PRIVATE_STATE?password=SECRET"));
+        assertEquals("Dirección no disponible", ListingPolicy.publicLocation("https://user:SECRET@www.mercadolibre.com/jms/mlc/lgz/login"));
+    }
 }

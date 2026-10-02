@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -32,7 +33,7 @@ public final class MainActivity extends Activity {
     private BrowserReader reader;
     private AppStore store;
     private LinearLayout layout, browserHost;
-    private TextView status, latest;
+    private TextView status, latest, browserStatus;
     private final List<Button> controls = new ArrayList<>();
     private boolean networkBusy;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -61,6 +62,8 @@ public final class MainActivity extends Activity {
         status = text("", 16);
         text("1. Comprueba la tienda", 21);
         control("Abrir tienda", () -> reader.openStore());
+        control("Abrir Mercado Libre en Chrome", this::openStoreInChrome);
+        control("Reiniciar sesión del navegador interno", this::resetBrowserSession);
         control("Guardar esta primera página", () -> {
             try { store.scope(reader.view.getUrl()); message("Listado guardado. Al activar la vigilancia se registrarán los productos existentes sin avisos."); }
             catch (Exception e) { message(e.getMessage()); }
@@ -68,7 +71,8 @@ public final class MainActivity extends Activity {
         control("Probar lectura sin avisos", () -> reader.scan(false, scan -> {
             message(scan.optBoolean("complete") ? "Lectura completa: " + scan.optJSONArray("products").length() + " productos. Ahora puedes probar la foto y activar la vigilancia." : scan.optString("reason"));
         }));
-        text("Este navegador tiene su propia sesión. Si aparece una verificación, resuélvela aquí manualmente y vuelve al listado.", 14);
+        text("Chrome permite abrir la tienda e iniciar sesión en el navegador del teléfono. Su sesión no se transfiere a esta app. Para activar avisos, la lectura de este navegador interno debe funcionar. Si pide iniciar sesión, complétalo aquí y vuelve a Abrir tienda.", 14);
+        browserStatus = text("", 13);
         browserHost = new LinearLayout(this);
         layout.addView(browserHost, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(440)));
         text("2. Conecta Telegram", 21);
@@ -88,8 +92,11 @@ public final class MainActivity extends Activity {
         control("Ver productos leídos", this::showProducts);
         Button diagnostic = new Button(this); diagnostic.setText("Copiar diagnóstico sin claves"); layout.addView(diagnostic);
         diagnostic.setOnClickListener(v -> {
-            getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Diagnóstico de la tienda", store.json("latest").toString()));
-            message("Diagnóstico copiado. No contiene el token de Telegram ni cookies.");
+            try {
+                JSONObject diagnosticData = store.json("latest").put("browser", reader.browserDiagnostic());
+                getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Diagnóstico de la tienda", diagnosticData.toString()));
+                message("Diagnóstico copiado. No contiene el token de Telegram ni cookies.");
+            } catch (Exception e) { message("No se pudo copiar el diagnóstico."); }
         });
         Button battery = new Button(this); battery.setText("Abrir ajustes de ahorro de batería"); layout.addView(battery);
         battery.setOnClickListener(v -> { try { startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception e) { message("Abre los ajustes de batería del teléfono."); } });
@@ -125,8 +132,9 @@ public final class MainActivity extends Activity {
         if (status == null || isDestroyed()) return;
         status.setText((reader.busy() ? "Leyendo el listado…\n" : "") + (networkBusy ? "Conectando con Telegram…\n" : "")
             + store.status() + "\nBot: " + (store.connected() ? "conectado" : "sin conectar") + " · Pendientes: " + store.pending());
-        boolean enabled = !reader.busy() && !networkBusy && !WatchService.active();
+        boolean enabled = !reader.busy() && !reader.changingSession() && !networkBusy && !WatchService.active();
         for (Button button : controls) button.setEnabled(enabled);
+        if (browserStatus != null) browserStatus.setText(reader.browserStatus());
         JSONObject scan = store.json("latest"); JSONArray products = scan.optJSONArray("products");
         if (scan.has("checkedAt")) latest.setText(scan.optString("checkedAt") + "\n" + (products == null ? 0 : products.length()) + " productos · " + scan.optInt("pages") + " páginas\n" + scan.optString("reason"));
     }
@@ -208,6 +216,30 @@ public final class MainActivity extends Activity {
     private void open(String url) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
         catch (Exception e) { message("No hay una aplicación disponible para abrir el enlace."); }
+    }
+    private void openStoreInChrome() {
+        String url = ListingPolicy.firstPage(store.scope()) ? ListingPolicy.withoutHash(store.scope()) : ListingPolicy.START;
+        Intent chrome = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage("com.android.chrome");
+        try {
+            startActivity(chrome);
+            message("Tienda abierta en Chrome. Puedes iniciar sesión allí. Al volver, prueba la lectura de la app: Chrome no le transfiere su sesión.");
+        } catch (ActivityNotFoundException e) {
+            try {
+                Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE);
+                startActivity(Intent.createChooser(browser, "Elige un navegador para Mercado Libre"));
+                message("No se encontró Chrome. Elige un navegador instalado. Su sesión es independiente de la app.");
+            } catch (ActivityNotFoundException missing) { message("Instala o habilita Chrome para abrir Mercado Libre en ese navegador."); }
+        }
+    }
+    private void resetBrowserSession() {
+        new AlertDialog.Builder(this).setTitle("Probar una sesión limpia")
+            .setMessage("Borrará las cookies, los datos de las páginas y la caché del navegador interno. Mercado Libre puede pedirte iniciar sesión de nuevo. Se conservan el bot, el historial de productos y los avisos pendientes.")
+            .setNegativeButton("Cancelar", null).setPositiveButton("Reiniciar sesión", (dialog, which) -> {
+                try {
+                    reader.resetBrowserSession(() -> message("Sesión del navegador reiniciada. La tienda generará sus cookies normales. Si pide acceso, inicia sesión aquí y luego prueba la lectura."));
+                    update();
+                } catch (Exception e) { message(e.getMessage()); }
+            }).show();
     }
     private void showProducts() {
         JSONArray products = store.json("latest").optJSONArray("products");

@@ -10,6 +10,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.CookieManager;
+import android.webkit.WebStorage;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -39,6 +41,8 @@ final class BrowserReader {
     private final Set<String> visited = new HashSet<>();
     private final LinkedHashMap<String, JSONObject> products = new LinkedHashMap<>();
     private JSONObject lastSample;
+    private String blockedDestination = "", browserIssue = "";
+    private boolean changingSession;
 
     @SuppressLint("SetJavaScriptEnabled")
     private BrowserReader(Context context) {
@@ -55,22 +59,35 @@ final class BrowserReader {
         view.getSettings().setAllowFileAccess(false);
         view.getSettings().setAllowContentAccess(false);
         view.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        CookieManager.getInstance().setAcceptCookie(true);
         view.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView web, WebResourceRequest request) {
-                return request.isForMainFrame() && !ListingPolicy.allowedBrowserPage(request.getUrl().toString());
+                if (!request.isForMainFrame() || ListingPolicy.allowedBrowserPage(request.getUrl().toString())) return false;
+                blockedDestination = ListingPolicy.publicLocation(request.getUrl().toString());
+                browserIssue = "El navegador interno no pudo abrir " + blockedDestination + " Usa Abrir Mercado Libre en Chrome o copia el diagnóstico.";
+                if (busy()) finish("navigation_blocked", browserIssue);
+                store.status(browserIssue); changed();
+                return true;
             }
             @Override public void onPageStarted(WebView web, String url, android.graphics.Bitmap icon) {
+                blockedDestination = ""; browserIssue = "";
                 if (busy() && awaitingNavigation) navigationStarted = true;
                 if (busy() && !same(url, expected)) finish("blocked", "La tienda redirigió a otra página. Abre la app y revisa la tienda.");
+                changed();
             }
             @Override public void onPageFinished(WebView web, String url) {
                 if (busy() && awaitingNavigation && navigationStarted && same(url, expected)) {
                     awaitingNavigation = false; sample(generation);
                 }
+                // Persist only this app's normal WebView cookies. Nothing is copied from Chrome.
+                Jobs.NETWORK.execute(() -> CookieManager.getInstance().flush());
                 changed();
             }
             @Override public void onReceivedError(WebView web, WebResourceRequest request, WebResourceError error) {
-                if (busy() && request.isForMainFrame()) finish("network_error", "No se pudo cargar la tienda. Revisa la conexión y prueba otra lectura.");
+                if (!request.isForMainFrame()) return;
+                browserIssue = "No se pudo cargar esta página. Revisa la conexión o prueba Abrir Mercado Libre en Chrome.";
+                if (busy()) finish("network_error", browserIssue);
+                else { store.status(browserIssue); changed(); }
             }
             @Override public void onReceivedHttpError(WebView web, WebResourceRequest request, WebResourceResponse response) {
                 if (busy() && request.isForMainFrame()) {
@@ -81,17 +98,40 @@ final class BrowserReader {
         });
     }
     boolean busy() { return callback != null; }
+    boolean changingSession() { return changingSession; }
+    void resetBrowserSession(Runnable complete) throws Exception {
+        if (busy() || changingSession || WatchService.active()) throw new Exception("Pausa la vigilancia y espera a que termine la lectura antes de reiniciar la sesión.");
+        changingSession = true; blockedDestination = ""; browserIssue = "";
+        view.stopLoading(); view.loadUrl("about:blank"); changed();
+        CookieManager.getInstance().removeAllCookies(removed -> {
+            // These stores belong to this app's WebView, not Chrome or the bot preferences.
+            WebStorage.getInstance().deleteAllData();
+            view.clearCache(true); view.clearHistory();
+            Jobs.NETWORK.execute(() -> CookieManager.getInstance().flush());
+            changingSession = false;
+            openStore();
+            complete.run(); changed();
+        });
+    }
+    String browserStatus() {
+        return "Página de la app: " + ListingPolicy.publicLocation(view.getUrl())
+            + (browserIssue.isEmpty() ? "" : "\n" + browserIssue);
+    }
+    JSONObject browserDiagnostic() throws Exception {
+        return new JSONObject().put("page", ListingPolicy.publicLocation(view.getUrl()))
+            .put("blockedDestination", blockedDestination).put("issue", browserIssue);
+    }
     void changed() { if (listener != null) listener.run(); }
     static boolean same(String a, String b) { return ListingPolicy.withoutHash(a).equals(ListingPolicy.withoutHash(b)); }
     void openStore() {
-        if (busy()) return;
+        if (busy() || changingSession) return;
         view.loadUrl(store.scope());
     }
     void cancel() {
         if (busy()) finish("cancelled", "Lectura cancelada. Se conserva el historial.");
     }
     void scan(boolean reload, Consumer<JSONObject> result) {
-        if (busy()) { try { result.accept(new JSONObject().put("status", "busy").put("complete", false)); } catch (Exception ignored) {} return; }
+        if (busy() || changingSession) { try { result.accept(new JSONObject().put("status", "busy").put("complete", false)); } catch (Exception ignored) {} return; }
         callback = result; generation++; scope = store.scope(); products.clear(); visited.clear(); pages = 0; mainHttp = 0;
         if (!reload && ListingPolicy.listing(view.getUrl()) && !same(scope, view.getUrl())) {
             finish("wrong_page", "Guarda la primera página que quieres vigilar antes de iniciar la lectura."); return;
@@ -156,6 +196,7 @@ final class BrowserReader {
                 .put("page", ListingPolicy.publicLocation(view.getUrl())).put("pages", pages)
                 .put("source", "android_webview").put("androidVersion", Build.VERSION.RELEASE)
                 .put("webViewVersion", WebView.getCurrentWebViewPackage() == null ? "unknown" : WebView.getCurrentWebViewPackage().versionName)
+                .put("browser", browserDiagnostic())
                 .put("mainHttp", mainHttp == 0 ? JSONObject.NULL : mainHttp);
             JSONArray list = new JSONArray(); for (JSONObject product : products.values()) list.put(product);
             result.put("products", list);

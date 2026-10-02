@@ -29,8 +29,11 @@ public final class ListingPolicy {
     public static boolean allowedBrowserPage(String value) {
         try {
             URI uri = URI.create(value);
-            return "https".equals(uri.getScheme()) && HOSTS.contains(uri.getHost())
-                && uri.getUserInfo() == null && uri.getPort() == -1;
+            if (!"https".equals(uri.getScheme()) || uri.getUserInfo() != null || uri.getPort() != -1) return false;
+            if (HOSTS.contains(uri.getHost())) return true;
+            // Chile's website can send the manual sign-in flow to the global ML domain.
+            return "www.mercadolibre.com".equals(uri.getHost())
+                && (uri.getPath().startsWith("/jms/mlc/") || uri.getPath().startsWith("/gz/"));
         } catch (Exception e) { return false; }
     }
     public static boolean product(String value) {
@@ -45,7 +48,16 @@ public final class ListingPolicy {
     public static String publicLocation(String value) {
         try {
             URI uri = URI.create(value);
-            return uri.getScheme() + "://" + uri.getHost() + uri.getPath();
+            if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) return "Dirección no disponible";
+            String origin = "https://" + uri.getHost();
+            String path = uri.getPath();
+            // Sign-in routes may include opaque authentication state in the path, not just the query.
+            if (path.startsWith("/jms/mlc/")) return origin + "/jms/mlc/";
+            if (path.startsWith("/jms/")) return origin + "/jms/";
+            if ("/gz/account-verification".equals(path)) return origin + path;
+            if (path.startsWith("/gz/")) return origin + "/gz/";
+            if (listing(value) || product(value)) return origin + path;
+            return origin + "/";
         } catch (Exception e) { return "Dirección no disponible"; }
     }
     private ListingPolicy() {}
