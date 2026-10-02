@@ -14,13 +14,13 @@ public class ReaderStateTest {
         JSONArray array = new JSONArray(); for (JSONObject p : products) array.put(p);
         return new JSONObject().put("status", "ok").put("complete", true).put("scopeUrl", ListingPolicy.START).put("products", array);
     }
-    @Test public void baselineIsSilentAndOnlyNewIdentifiersAreQueuedOnce() throws Exception {
+    @Test public void baselineIsSilentAndNewIdentifiersAreQueuedOnce() throws Exception {
         JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 100)), ListingPolicy.START);
         assertEquals(0, state.getJSONArray("pending").length());
-        state = CatalogState.reconcile(state, scan(product("a", 90), product("b", 50), product("b", 50)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 100), product("b", 50), product("b", 50)), ListingPolicy.START);
         assertEquals(1, state.getJSONArray("pending").length());
         assertEquals("b", state.getJSONArray("pending").getJSONObject(0).getString("key"));
-        state = CatalogState.reconcile(state, scan(product("b", 45), product("a", 90)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("b", 50), product("a", 100)), ListingPolicy.START);
         assertEquals(1, state.getJSONArray("pending").length());
     }
     @Test public void failedEmptyAndForeignScopeReadsPreserveHistoryAndOutbox() throws Exception {
@@ -36,7 +36,7 @@ public class ReaderStateTest {
         JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 100), product("b", 50)), ListingPolicy.START);
         state = CatalogState.reconcile(state, scan(product("a", 100)), ListingPolicy.START);
         state = new JSONObject(state.toString());
-        state = CatalogState.reconcile(state, scan(product("b", 60), product("a", 90)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("b", 60), product("a", 100)), ListingPolicy.START);
         assertEquals(0, state.getJSONArray("pending").length());
     }
     @Test public void rejectsForeignSellerCredentialsPortsAndNonHttps() {
@@ -56,5 +56,60 @@ public class ReaderStateTest {
         assertTrue(text.endsWith(p.getString("url")));
         assertTrue(text.contains("no es una novedad"));
         assertTrue(text.contains("18.990"));
+    }
+    @Test public void dropsAreQueuedOnceAndIncreasesUpdateTheReference() throws Exception {
+        JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 20000)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 18990), product("a", 18990)), ListingPolicy.START);
+        JSONArray pending = state.getJSONArray("pending");
+        assertEquals(1, pending.length());
+        assertEquals("price_drop", pending.getJSONObject(0).getString("type"));
+        assertEquals(20000, pending.getJSONObject(0).getLong("previousPrice"));
+        assertEquals(18990, pending.getJSONObject(0).getLong("price"));
+        state = new JSONObject(state.toString());
+        state = CatalogState.reconcile(state, scan(product("a", 18990)), ListingPolicy.START);
+        assertEquals(1, state.getJSONArray("pending").length());
+        state = CatalogState.reconcile(state, scan(product("a", 21000)), ListingPolicy.START);
+        assertEquals(1, state.getJSONArray("pending").length());
+        state = CatalogState.reconcile(state, scan(product("a", 20000)), ListingPolicy.START);
+        assertEquals(2, state.getJSONArray("pending").length());
+        assertEquals(21000, state.getJSONArray("pending").getJSONObject(1).getLong("previousPrice"));
+    }
+    @Test public void missingZeroInvalidPricesAndIncompleteReadsDoNotInventDrops() throws Exception {
+        JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 20000)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 10000)).put("complete", false), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 0)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 0).put("price", JSONObject.NULL)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 0).put("price", "100")), ListingPolicy.START);
+        assertEquals(0, state.getJSONArray("pending").length());
+        assertEquals(20000, state.getJSONObject("seen").getJSONObject("a").getLong("lastKnownPrice"));
+        state = CatalogState.reconcile(state, scan(product("a", 18000)), ListingPolicy.START);
+        assertEquals(1, state.getJSONArray("pending").length());
+        assertEquals(20000, state.getJSONArray("pending").getJSONObject(0).getLong("previousPrice"));
+    }
+    @Test public void firstKnownPriceIsSilentAndOldHistoryCanDetectDrops() throws Exception {
+        JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 0)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 18000)), ListingPolicy.START);
+        assertEquals(0, state.getJSONArray("pending").length());
+        JSONObject old = new JSONObject().put("baseline", true).put("seen", new JSONObject().put("a", product("a", 20000))).put("pending", new JSONArray());
+        state = CatalogState.reconcile(old, scan(product("a", 18000)), ListingPolicy.START);
+        assertEquals("price_drop", state.getJSONArray("pending").getJSONObject(0).getString("type"));
+        assertEquals(20000, state.getJSONArray("pending").getJSONObject(0).getLong("previousPrice"));
+    }
+    @Test public void queuedDropsKeepTheirOriginalPricesAndPhotoCaptionFits() throws Exception {
+        JSONObject p = product("a", 18990).put("type", "price_drop").put("previousPrice", 20000).put("title", "🐱".repeat(800));
+        String text = TelegramClient.caption(p, false, false);
+        assertTrue(text.contains("Bajó el precio"));
+        assertTrue(text.contains("Antes: $20.000 CLP"));
+        assertTrue(text.contains("Ahora: $18.990 CLP"));
+        assertTrue(text.contains("Bajó $1.010 CLP"));
+        assertTrue(text.endsWith(p.getString("url")));
+        assertTrue(text.codePointCount(0, text.length()) <= 1024);
+        assertTrue(TelegramClient.caption(p, false, true).contains("Foto no disponible"));
+        assertFalse(TelegramClient.caption(p, true, false).contains("Bajó el precio"));
+        JSONObject state = CatalogState.reconcile(new JSONObject(), scan(product("a", 20000)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 18000)), ListingPolicy.START);
+        state = CatalogState.reconcile(state, scan(product("a", 17000)), ListingPolicy.START);
+        assertEquals(18000, state.getJSONArray("pending").getJSONObject(0).getLong("price"));
+        assertEquals(17000, state.getJSONArray("pending").getJSONObject(1).getLong("price"));
     }
 }

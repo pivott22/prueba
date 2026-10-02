@@ -83,9 +83,14 @@ final class TelegramClient {
     }
     static String caption(JSONObject product, boolean test, boolean missingPhoto) throws Exception {
         long price = product.optLong("price");
-        String amount = price > 0 ? "$" + NumberFormat.getIntegerInstance(new Locale("es", "CL")).format(price) + " CLP" : "Precio no visible";
-        String prefix = (test ? "🧪 Prueba con un producto real (no es una novedad)" : "🆕 Nueva publicación detectada") + "\n\n";
-        String suffix = "\n💰 " + amount + (missingPhoto ? "\n📷 Foto no disponible." : "") + "\n\n" + product.getString("url");
+        NumberFormat money = NumberFormat.getIntegerInstance(new Locale("es", "CL"));
+        long previous = product.optLong("previousPrice");
+        boolean drop = !test && "price_drop".equals(product.optString("type")) && price > 0 && previous > price;
+        String amount = price > 0 ? "$" + money.format(price) + " CLP" : "Precio no visible";
+        String prefix = (test ? "🧪 Prueba con un producto real (no es una novedad)" : drop ? "📉 Bajó el precio" : "🆕 Nueva publicación detectada") + "\n\n";
+        String details = drop ? "\nAntes: $" + money.format(previous) + " CLP\nAhora: " + amount
+            + "\nBajó $" + money.format(previous - price) + " CLP respecto de la última lectura con precio." : "\n💰 " + amount;
+        String suffix = details + (missingPhoto ? "\n📷 Foto no disponible." : "") + "\n\n" + product.getString("url");
         int budget = Math.min(700, 1024 - (prefix + suffix).codePointCount(0, (prefix + suffix).length()));
         if (budget < 1) throw new Exception("El enlace es demasiado largo para el mensaje con foto.");
         String title = product.getString("title"); int length = title.codePointCount(0, title.length());
