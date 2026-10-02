@@ -16,13 +16,15 @@ final class AppStore {
             state.put("seen", new JSONObject()).put("baseline", false);
             put("state", state);
         }
-        prefs.edit().putString("scope", url).commit();
+        if (!prefs.edit().putString("scope", url).commit()) throw new Exception("No se pudo guardar el listado.");
     }
     synchronized JSONObject json(String key) {
         try { return new JSONObject(prefs.getString(key, "{}")); }
         catch (Exception e) { return new JSONObject(); }
     }
-    synchronized void put(String key, JSONObject value) { prefs.edit().putString(key, value.toString()).commit(); }
+    synchronized void put(String key, JSONObject value) {
+        if (!prefs.edit().putString(key, value.toString()).commit()) throw new IllegalStateException("No se pudo guardar el historial en el teléfono.");
+    }
     synchronized JSONObject state() {
         JSONObject state = json("state");
         try {
@@ -49,8 +51,8 @@ final class AppStore {
     String token() throws Exception { return SecretBox.decrypt(prefs.getString("token", "")); }
     long chat() { return prefs.getLong("chat", 0); }
     void prepare(String token, String username, String code) throws Exception {
-        prefs.edit().putString("pendingToken", SecretBox.encrypt(token)).putString("username", username)
-            .putString("code", code).putLong("setupExpires", System.currentTimeMillis() + 600000).commit();
+        if (!prefs.edit().putString("pendingToken", SecretBox.encrypt(token)).putString("username", username)
+            .putString("code", code).putLong("setupExpires", System.currentTimeMillis() + 600000).commit()) throw new Exception("No se pudo guardar la conexión del bot.");
     }
     String setupCode() { return prefs.getString("code", ""); }
     String botUrl() { return "https://t.me/" + prefs.getString("username", "") + "?start=" + setupCode(); }
@@ -60,8 +62,8 @@ final class AppStore {
     }
     void connect(long chat) throws Exception {
         String token = pendingToken();
-        prefs.edit().putString("token", SecretBox.encrypt(token)).putLong("chat", chat)
-            .remove("pendingToken").remove("code").remove("setupExpires").commit();
+        if (!prefs.edit().putString("token", SecretBox.encrypt(token)).putLong("chat", chat)
+            .remove("pendingToken").remove("code").remove("setupExpires").commit()) throw new Exception("No se pudo guardar la conexión del bot.");
     }
     void status(String value) { prefs.edit().putString("status", value).apply(); }
     String status() { return prefs.getString("status", "Abre la tienda y comprueba una lectura antes de activar los avisos."); }

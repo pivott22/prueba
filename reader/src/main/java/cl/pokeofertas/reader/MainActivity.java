@@ -110,7 +110,11 @@ public final class MainActivity extends Activity {
         browserHost.addView(reader.view, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
     @Override public void onStart() { super.onStart(); attachBrowser(); reader.listener = this::update; handler.post(refresh); }
-    @Override public void onResume() { super.onResume(); WatchService.foregroundOpened(); update(); }
+    @Override public void onResume() {
+        super.onResume(); WatchService.foregroundOpened();
+        if (!WatchService.active() && store.status().startsWith("Vigilancia activa")) store.status("La vigilancia ya no está activa. Comprueba la tienda y vuelve a activarla.");
+        update();
+    }
     @Override public void onStop() {
         handler.removeCallbacks(refresh); reader.listener = null;
         // Keep the measured WebView in memory for the foreground service. Do not pause its timers.

@@ -160,7 +160,11 @@ final class BrowserReader {
             JSONArray list = new JSONArray(); for (JSONObject product : products.values()) list.put(product);
             result.put("products", list);
             if (lastSample != null) result.put("visibleCards", lastSample.optInt("visibleCards")).put("validProducts", lastSample.optInt("validProducts"));
-            store.put("latest", result); done.accept(result);
+            try { store.put("latest", result); }
+            catch (IllegalStateException e) {
+                result.put("status", "storage_error").put("complete", false).put("reason", "No se pudo guardar la lectura en el teléfono. Libera espacio y vuelve a probar.");
+            }
+            done.accept(result);
         } catch (Exception e) { store.status("No se pudo guardar la lectura. Vuelve a probar."); }
         changed();
     }
