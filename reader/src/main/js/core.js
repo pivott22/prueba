@@ -58,9 +58,23 @@ function normalizeProduct(raw, listingUrl, sellerId) {
   } catch { return null; }
 }
 
-function classifyPage({ url, http, text }) {
+function accessKind({ url, text = '', recognized = false }) {
+  const page = new URL(url);
+  if (/verifica que eres humano|completa el captcha|resuelve el captcha/i.test(text)
+      || /\/(?:captcha|challenge)(?:\/|$)/i.test(page.pathname)) return 'verification';
+  const trusted = ['www.mercadolibre.cl', 'accounts.mercadolibre.cl', 'listado.mercadolibre.cl'].includes(page.hostname)
+    || (page.hostname === 'www.mercadolibre.com' && page.pathname.startsWith('/jms/mlc/'));
+  if (page.protocol !== 'https:' || page.username || page.password || page.port || !trusted) return '';
+  if (/\/login(?:\/|$)/i.test(page.pathname)
+      || (!recognized && /para continuar,?\s+(?:ingresa|inicia sesi[oó]n)|ingresa tu (?:e-?mail|correo|tel[eé]fono)|inici(?:a|ar) sesi[oó]n/i.test(text))) return 'signin';
+  if (/\/gz\/|\/account-verification|\/registration/i.test(page.pathname)) return 'verification';
+  return '';
+}
+
+function classifyPage({ url, http, text, recognized = false }) {
   if ([401, 403, 429].includes(http)) return 'blocked';
   if (http >= 400) return 'http_error';
+  if (accessKind({ url, text, recognized })) return 'blocked';
   if (/\/gz\/|\/account-verification|\/login|\/registration/i.test(new URL(url).pathname)) return 'blocked';
   if (/hubo un error accediendo|para continuar,?\s+ingresa|verifica que eres humano|completa el captcha|access denied/i.test(text)) return 'blocked';
   return 'ok';
@@ -94,4 +108,4 @@ function telegramText(product, { test = false, missingPhoto = false } = {}) {
 }
 
 
-export { validListingUrl, normalizeImageUrl, normalizeProduct, classifyPage, emptyState, reconcile, telegramText };
+export { validListingUrl, normalizeImageUrl, normalizeProduct, accessKind, classifyPage, emptyState, reconcile, telegramText };

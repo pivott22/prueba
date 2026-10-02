@@ -35,7 +35,7 @@ final class BrowserReader {
     Runnable listener;
     private final String script;
     private Consumer<JSONObject> callback;
-    private int generation, attempts, stable, pages, mainHttp;
+    private int generation, sampleToken, attempts, stable, pages, mainHttp;
     private String expected, scope, signature;
     private boolean awaitingNavigation, navigationStarted;
     private final Set<String> visited = new HashSet<>();
@@ -64,19 +64,20 @@ final class BrowserReader {
             @Override public boolean shouldOverrideUrlLoading(WebView web, WebResourceRequest request) {
                 if (!request.isForMainFrame() || ListingPolicy.allowedBrowserPage(request.getUrl().toString())) return false;
                 blockedDestination = ListingPolicy.publicLocation(request.getUrl().toString());
-                browserIssue = "El navegador interno no pudo abrir " + blockedDestination + " Usa Abrir Mercado Libre en Chrome o copia el diagnóstico.";
-                if (busy()) finish("navigation_blocked", browserIssue);
-                store.status(browserIssue); changed();
+                // Rejecting an unrelated link leaves the current document open. The DOM read,
+                // not this attempted navigation, decides whether the store remains usable.
+                browserIssue = "Se rechazó un enlace a " + blockedDestination + " La página actual continúa abierta.";
+                changed();
                 return true;
             }
             @Override public void onPageStarted(WebView web, String url, android.graphics.Bitmap icon) {
                 blockedDestination = ""; browserIssue = "";
-                if (busy() && awaitingNavigation) navigationStarted = true;
-                if (busy() && !same(url, expected)) finish("blocked", "La tienda redirigió a otra página. Abre la app y revisa la tienda.");
+                // Let an allowed redirect finish so the DOM can distinguish sign-in from verification.
+                if (busy()) { sampleToken++; awaitingNavigation = true; navigationStarted = true; }
                 changed();
             }
             @Override public void onPageFinished(WebView web, String url) {
-                if (busy() && awaitingNavigation && navigationStarted && same(url, expected)) {
+                if (busy() && awaitingNavigation && navigationStarted && same(url, view.getUrl())) {
                     awaitingNavigation = false; sample(generation);
                 }
                 // Persist only this app's normal WebView cookies. Nothing is copied from Chrome.
@@ -84,13 +85,13 @@ final class BrowserReader {
                 changed();
             }
             @Override public void onReceivedError(WebView web, WebResourceRequest request, WebResourceError error) {
-                if (!request.isForMainFrame()) return;
+                if (!request.isForMainFrame() || !same(request.getUrl().toString(), view.getUrl())) return;
                 browserIssue = "No se pudo cargar esta página. Revisa la conexión o prueba Abrir Mercado Libre en Chrome.";
                 if (busy()) finish("network_error", browserIssue);
                 else { store.status(browserIssue); changed(); }
             }
             @Override public void onReceivedHttpError(WebView web, WebResourceRequest request, WebResourceResponse response) {
-                if (busy() && request.isForMainFrame()) {
+                if (busy() && request.isForMainFrame() && same(request.getUrl().toString(), view.getUrl())) {
                     mainHttp = response.getStatusCode();
                     if (mainHttp >= 400) finish("http_error", "Mercado Libre respondió HTTP " + mainHttp + ". La vigilancia se pausó.");
                 }
@@ -100,7 +101,15 @@ final class BrowserReader {
     boolean busy() { return callback != null; }
     boolean changingSession() { return changingSession; }
     void resetBrowserSession(Runnable complete) throws Exception {
-        if (busy() || changingSession || WatchService.active()) throw new Exception("Pausa la vigilancia y espera a que termine la lectura antes de reiniciar la sesión.");
+        if (WatchService.active()) throw new Exception("Pausa la vigilancia antes de reiniciar la sesión manualmente.");
+        clearBrowserSession(() -> { openStore(); complete.run(); });
+    }
+    void resetForRecovery(Runnable complete) throws Exception {
+        if (!WatchService.active()) throw new Exception("La vigilancia ya no está activa.");
+        clearBrowserSession(complete);
+    }
+    private void clearBrowserSession(Runnable complete) throws Exception {
+        if (busy() || changingSession) throw new Exception("Espera a que termine la lectura antes de reiniciar la sesión.");
         changingSession = true; blockedDestination = ""; browserIssue = "";
         view.stopLoading(); view.loadUrl("about:blank"); changed();
         CookieManager.getInstance().removeAllCookies(removed -> {
@@ -109,7 +118,6 @@ final class BrowserReader {
             view.clearCache(true); view.clearHistory();
             Jobs.NETWORK.execute(() -> CookieManager.getInstance().flush());
             changingSession = false;
-            openStore();
             complete.run(); changed();
         });
     }
@@ -132,7 +140,7 @@ final class BrowserReader {
     }
     void scan(boolean reload, Consumer<JSONObject> result) {
         if (busy() || changingSession) { try { result.accept(new JSONObject().put("status", "busy").put("complete", false)); } catch (Exception ignored) {} return; }
-        callback = result; generation++; scope = store.scope(); products.clear(); visited.clear(); pages = 0; mainHttp = 0;
+        callback = result; generation++; scope = store.scope(); products.clear(); visited.clear(); pages = 0; mainHttp = 0; lastSample = null;
         if (!reload && ListingPolicy.listing(view.getUrl()) && !same(scope, view.getUrl())) {
             finish("wrong_page", "Guarda la primera página que quieres vigilar antes de iniciar la lectura."); return;
         }
@@ -146,31 +154,33 @@ final class BrowserReader {
         expected = url; signature = null; stable = 0; attempts = 0; lastSample = null;
         awaitingNavigation = navigate; navigationStarted = false;
         int current = generation;
+        // Also covers a redirect or manual refresh that starts while sampling an already loaded page.
+        handler.postDelayed(() -> {
+            if (busy() && generation == current && awaitingNavigation) finish("timeout", "La página tardó demasiado en cargar. Se conserva el historial.");
+        }, 25000);
         if (navigate) {
             if (same(view.getUrl(), url)) view.reload(); else view.loadUrl(url);
-            handler.postDelayed(() -> {
-                if (busy() && generation == current && awaitingNavigation) finish("timeout", "La página tardó demasiado en cargar. Se conserva el historial.");
-            }, 25000);
         } else sample(current);
     }
     private void sample(int current) {
-        if (!busy() || current != generation) return;
-        if (!same(view.getUrl(), expected)) { finish("blocked", "La página ya no es el listado guardado."); return; }
+        if (!busy() || current != generation || awaitingNavigation) return;
+        int token = sampleToken;
         view.evaluateJavascript(script, encoded -> {
-            if (!busy() || current != generation) return;
+            if (!busy() || current != generation || token != sampleToken || awaitingNavigation) return;
             try {
                 Object decoded = new JSONTokener(encoded).nextValue();
                 if (!(decoded instanceof String)) throw new Exception();
                 JSONObject data = new JSONObject((String) decoded); lastSample = data; attempts++;
                 String status = data.optString("status");
                 if ("blocked".equals(status) || "wrong_page".equals(status)) { finish(status, data.optString("reason")); return; }
+                if (!same(view.getUrl(), expected)) { finish("wrong_page", "La página ya no es el listado guardado."); return; }
                 if (data.optBoolean("completeFirstPage")) {
                     String nextSignature = data.getJSONArray("products").toString() + data.optString("nextUrl");
                     stable = nextSignature.equals(signature) ? stable + 1 : 1; signature = nextSignature;
                     if (stable >= 3) { acceptPage(data, current); return; }
                 } else { stable = 0; signature = null; }
                 if (attempts >= 40) { finish("incomplete", data.optString("reason", "No se estabilizó el listado. Se conserva el historial.")); return; }
-                handler.postDelayed(() -> sample(current), 500);
+                handler.postDelayed(() -> { if (token == sampleToken) sample(current); }, 500);
             } catch (Exception e) { finish("parse_error", "No se pudo interpretar el listado. Se conserva el historial."); }
         });
     }
@@ -190,6 +200,7 @@ final class BrowserReader {
     private void finish(String status, String reason) {
         if (!busy()) return;
         Consumer<JSONObject> done = callback; callback = null; generation++;
+        if ("ok".equals(status)) { blockedDestination = ""; browserIssue = ""; }
         try {
             JSONObject result = new JSONObject().put("status", status).put("complete", "ok".equals(status))
                 .put("reason", reason).put("checkedAt", Instant.now().toString()).put("scopeUrl", scope)
@@ -197,6 +208,7 @@ final class BrowserReader {
                 .put("source", "android_webview").put("androidVersion", Build.VERSION.RELEASE)
                 .put("webViewVersion", WebView.getCurrentWebViewPackage() == null ? "unknown" : WebView.getCurrentWebViewPackage().versionName)
                 .put("browser", browserDiagnostic())
+                .put("accessKind", lastSample == null ? "" : lastSample.optString("accessKind"))
                 .put("mainHttp", mainHttp == 0 ? JSONObject.NULL : mainHttp);
             JSONArray list = new JSONArray(); for (JSONObject product : products.values()) list.put(product);
             result.put("products", list);

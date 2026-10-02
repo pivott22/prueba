@@ -80,6 +80,7 @@ public final class MainActivity extends Activity {
         control("Enviar prueba con foto de un producto real", this::photoTest);
         text("3. Vigila las novedades", 21);
         text("La primera lectura completa guarda el listado sin avisar. Después avisa de productos nuevos y de cualquier bajada o subida respecto del último precio válido leído. Los avisos de precio muestran el anterior, el nuevo y la diferencia, con foto y enlace cuando están disponibles.", 15);
+        text("Si la tienda pide iniciar sesión durante la vigilancia, se reinicia automáticamente la sesión de este navegador una vez y se vuelve al listado. Puede cerrar tu sesión de Mercado Libre. Si el acceso sigue fallando, la vigilancia se pausa y te avisa. Una página distinta o un fallo temporal se intenta recargar una vez. Se conservan el bot, el historial y los avisos pendientes.", 14);
         control("Activar vigilancia cada 2 min", this::activate);
         Button pause = new Button(this); pause.setText("Pausar vigilancia"); layout.addView(pause);
         pause.setOnClickListener(v -> { stopService(new Intent(this, WatchService.class)); store.status("Vigilancia pausada por ti."); update(); });
@@ -130,7 +131,8 @@ public final class MainActivity extends Activity {
     }
     private void update() {
         if (status == null || isDestroyed()) return;
-        status.setText((reader.busy() ? "Leyendo el listado…\n" : "") + (networkBusy ? "Conectando con Telegram…\n" : "")
+        status.setText((reader.changingSession() ? "Reiniciando la sesión del navegador…\n" : "")
+            + (reader.busy() ? "Leyendo el listado…\n" : "") + (networkBusy ? "Conectando con Telegram…\n" : "")
             + store.status() + "\nBot: " + (store.connected() ? "conectado" : "sin conectar") + " · Pendientes: " + store.pending());
         boolean enabled = !reader.busy() && !reader.changingSession() && !networkBusy && !WatchService.active();
         for (Button button : controls) button.setEnabled(enabled);

@@ -22,6 +22,7 @@ public final class WatchService extends Service {
     private AppStore store;
     private PowerManager.WakeLock wakeLock;
     private long due;
+    private final ReadRecovery recovery = new ReadRecovery();
 
     static boolean active() { WatchService service = instance; return service != null && service.running; }
     static void foregroundOpened() {
@@ -62,11 +63,16 @@ public final class WatchService extends Service {
     }
     private void tick(boolean reload) {
         if (!running) return;
-        if (reader.busy()) { handler.postDelayed(() -> tick(reload), 2000); return; }
+        if (reader.busy() || reader.changingSession()) { handler.postDelayed(() -> tick(reload), 2000); return; }
         due = SystemClock.elapsedRealtime() + 120000;
         reader.scan(reload, scan -> {
             if (!running) return;
-            if (!scan.optBoolean("complete")) { stopWatching(scan.optString("reason", "Lectura incompleta. Abre la tienda y vuelve a probar."), true); return; }
+            if (!scan.optBoolean("complete")) {
+                ReadRecovery.Action action = recovery.next(scan, store.scope());
+                if (action != ReadRecovery.Action.NONE) { recover(action); return; }
+                stopWatching(scan.optString("reason", "Lectura incompleta.") + " Abre la app, revisa el acceso y vuelve a activar la vigilancia.", true); return;
+            }
+            recovery.completeRead();
             Jobs.NETWORK.execute(() -> {
                 String error = null;
                 try { store.reconcile(scan); new TelegramClient(store).deliver(() -> running); }
@@ -81,6 +87,20 @@ public final class WatchService extends Service {
                 });
             });
         });
+    }
+    private void recover(ReadRecovery.Action action) {
+        String message = action == ReadRecovery.Action.RESET_SESSION
+            ? "Mercado Libre pide iniciar sesión. Se reiniciará la sesión del navegador y se abrirá la tienda en 10 segundos."
+            : "La lectura se interrumpió. Se volverá a cargar la tienda en 10 segundos.";
+        store.status("Vigilancia activa · " + message); reader.changed();
+        getSystemService(NotificationManager.class).notify(NOTICE, notification(message, true));
+        handler.postDelayed(() -> {
+            if (!running) return;
+            if (action == ReadRecovery.Action.RESET_SESSION) {
+                try { reader.resetForRecovery(() -> { if (running) tick(true); }); }
+                catch (Exception e) { stopWatching("No se pudo reiniciar la sesión. Abre la app y revisa la tienda.", true); }
+            } else tick(true);
+        }, ReadRecovery.DELAY_MS);
     }
     private void stopWatching(String reason, boolean notice) {
         running = false; handler.removeCallbacksAndMessages(null);
